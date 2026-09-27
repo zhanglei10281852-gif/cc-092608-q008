@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Query
 
 from app.network.operations import NetworkOperationsService
-from app.network.operations_schemas import CampaignAction, MaintenanceAction, MaintenanceCreate, RolloutCampaignCreate
+from app.network.operations_schemas import CampaignAction, MaintenanceAction, MaintenanceCreate, RolloutCampaignCreate, StageOverride
 
 router = APIRouter(prefix="/api/network/operations", tags=["网络发布与维护"])
 
@@ -40,6 +40,16 @@ def pause_campaign(campaign_id: int, payload: CampaignAction):
 @router.post("/campaigns/{campaign_id}/complete")
 def complete_campaign(campaign_id: int, payload: CampaignAction):
     return service().complete_campaign(campaign_id, payload.actor, payload.reason)
+
+
+@router.post("/campaigns/advance")
+def advance_campaigns(actor: str = Query(default="gate-scheduler", min_length=1)):
+    return service().advance_campaigns(actor)
+
+
+@router.post("/campaigns/{campaign_id}/stages/{stage_id}/override")
+def override_stage(campaign_id: int, stage_id: int, payload: StageOverride):
+    return service().override_stage(campaign_id, stage_id, payload.actor, payload.reason, payload.decision)
 
 
 @router.post("/maintenance", status_code=201)

@@ -155,6 +155,7 @@ CREATE TABLE IF NOT EXISTS rollout_campaigns (
     state TEXT NOT NULL DEFAULT 'draft' CHECK(state IN ('draft','scheduled','running','paused','completed','cancelled')),
     target_percentage INTEGER NOT NULL DEFAULT 100 CHECK(target_percentage BETWEEN 1 AND 100),
     policy_version_id INTEGER NOT NULL REFERENCES policy_versions(id),
+    failure_action TEXT NOT NULL DEFAULT 'pause' CHECK(failure_action IN ('pause','rollback')),
     starts_at TEXT,
     ends_at TEXT,
     created_by TEXT NOT NULL,
@@ -174,6 +175,62 @@ CREATE TABLE IF NOT EXISTS rollout_targets (
     UNIQUE(campaign_id,segment_id,cohort_key)
 );
 CREATE INDEX IF NOT EXISTS idx_rollout_targets_state ON rollout_targets(campaign_id,state,id);
+CREATE TABLE IF NOT EXISTS rollout_stages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    campaign_id INTEGER NOT NULL REFERENCES rollout_campaigns(id) ON DELETE CASCADE,
+    stage_no INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    min_observation_seconds INTEGER NOT NULL CHECK(min_observation_seconds > 0),
+    min_samples INTEGER NOT NULL CHECK(min_samples > 0),
+    max_degraded_ratio REAL NOT NULL CHECK(max_degraded_ratio >= 0 AND max_degraded_ratio <= 1),
+    max_critical_events INTEGER NOT NULL CHECK(max_critical_events >= 0),
+    state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','observing','passed','failed','skipped')),
+    conclusion TEXT NOT NULL DEFAULT '',
+    observation_started_at TEXT,
+    evaluated_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(campaign_id, stage_no)
+);
+CREATE INDEX IF NOT EXISTS idx_rollout_stages_state ON rollout_stages(campaign_id,state,stage_no);
+CREATE TABLE IF NOT EXISTS rollout_stage_targets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    stage_id INTEGER NOT NULL REFERENCES rollout_stages(id) ON DELETE CASCADE,
+    campaign_id INTEGER NOT NULL REFERENCES rollout_campaigns(id) ON DELETE CASCADE,
+    segment_id INTEGER REFERENCES network_segments(id),
+    cohort_key TEXT NOT NULL DEFAULT '',
+    state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','active','paused','completed','rolled_back')),
+    activated_at TEXT,
+    completed_at TEXT,
+    rolled_back_at TEXT,
+    version INTEGER NOT NULL DEFAULT 1,
+    UNIQUE(stage_id,segment_id,cohort_key)
+);
+CREATE INDEX IF NOT EXISTS idx_rollout_stage_targets_state ON rollout_stage_targets(campaign_id,state,id);
+CREATE TABLE IF NOT EXISTS rollout_stage_evaluations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    stage_id INTEGER NOT NULL REFERENCES rollout_stages(id) ON DELETE CASCADE,
+    campaign_id INTEGER NOT NULL REFERENCES rollout_campaigns(id) ON DELETE CASCADE,
+    policy_version_id INTEGER NOT NULL REFERENCES policy_versions(id),
+    rules_digest TEXT NOT NULL,
+    window_start TEXT NOT NULL,
+    window_end TEXT NOT NULL,
+    samples INTEGER NOT NULL,
+    degraded INTEGER NOT NULL,
+    degraded_ratio REAL NOT NULL,
+    minor_events INTEGER NOT NULL,
+    major_events INTEGER NOT NULL,
+    critical_events INTEGER NOT NULL,
+    thresholds_json TEXT NOT NULL,
+    reasons_json TEXT NOT NULL DEFAULT '[]',
+    conclusion TEXT NOT NULL CHECK(conclusion IN ('passed','failed','insufficient_data')),
+    actor TEXT NOT NULL,
+    overridden INTEGER NOT NULL DEFAULT 0 CHECK(overridden IN (0,1)),
+    override_actor TEXT,
+    override_reason TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_rollout_stage_evaluations ON rollout_stage_evaluations(stage_id,id);
 CREATE TABLE IF NOT EXISTS maintenance_windows (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     scenario_id INTEGER NOT NULL REFERENCES network_scenarios(id),
@@ -204,3 +261,6 @@ CREATE INDEX IF NOT EXISTS idx_operation_events_resource ON operation_events(res
 
 def ensure_network_schema(connection: sqlite3.Connection) -> None:
     connection.executescript(NETWORK_SCHEMA)
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(rollout_campaigns)")}
+    if "failure_action" not in columns:
+        connection.execute("ALTER TABLE rollout_campaigns ADD COLUMN failure_action TEXT NOT NULL DEFAULT 'pause'")
