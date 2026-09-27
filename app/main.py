@@ -22,7 +22,7 @@ async def lifespan(app: FastAPI):
     close_connection()
 
 
-app = FastAPI(title="5G-A 场景加速运营服务", version="2.0.0", lifespan=lifespan)
+app = FastAPI(title="5G-A 场景加速运营服务", version="2.1.0", lifespan=lifespan)
 
 
 @app.exception_handler(DomainError)
@@ -46,4 +46,4 @@ app.include_router(operations_router)
 
 @app.get("/")
 def root() -> dict:
-    return {"service": "5G-A 场景加速运营服务", "version": "2.0.0"}
+    return {"service": "5G-A 场景加速运营服务", "version": "2.1.0"}

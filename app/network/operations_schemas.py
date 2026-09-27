@@ -5,6 +5,26 @@ from typing import Literal
 from pydantic import BaseModel, Field, model_validator
 
 
+class RolloutPhaseCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=160)
+    segment_codes: list[str] = Field(default_factory=list, max_length=500)
+    cohort_keys: list[str] = Field(default_factory=list, max_length=100)
+    min_observation_seconds: int = Field(ge=1, le=2592000)
+    min_samples: int = Field(ge=1, le=1000000)
+    max_degraded_ratio: float = Field(ge=0.0, le=1.0)
+    max_critical_incidents: int = Field(ge=0, le=1000000)
+
+    @model_validator(mode="after")
+    def validate_phase(self) -> "RolloutPhaseCreate":
+        if not self.segment_codes and not self.cohort_keys:
+            raise ValueError("每个阶段必须至少定义一个目标区段或用户分群")
+        if len(self.segment_codes) != len(set(self.segment_codes)):
+            raise ValueError("阶段发布区段不能重复")
+        if len(self.cohort_keys) != len(set(self.cohort_keys)):
+            raise ValueError("阶段用户分群不能重复")
+        return self
+
+
 class RolloutCampaignCreate(BaseModel):
     scenario_code: str = Field(min_length=2, max_length=64)
     policy_id: int = Field(gt=0)
@@ -14,12 +34,17 @@ class RolloutCampaignCreate(BaseModel):
     target_percentage: int = Field(default=100, ge=1, le=100)
     segment_codes: list[str] = Field(default_factory=list, max_length=500)
     cohort_keys: list[str] = Field(default_factory=list, max_length=100)
+    phases: list[RolloutPhaseCreate] = Field(default_factory=list, max_length=20)
     starts_at: str | None = None
     ends_at: str | None = None
     actor: str = Field(min_length=1, max_length=120)
 
     @model_validator(mode="after")
     def validate_targets(self) -> "RolloutCampaignCreate":
+        if self.phases:
+            if self.segment_codes or self.cohort_keys:
+                raise ValueError("分阶段发布不能在活动级重复定义区段或分群")
+            return self
         if self.strategy == "segments" and not self.segment_codes:
             raise ValueError("区段发布必须至少选择一个区段")
         if self.strategy == "scheduled" and not self.starts_at:
@@ -34,6 +59,12 @@ class RolloutCampaignCreate(BaseModel):
 class CampaignAction(BaseModel):
     actor: str = Field(min_length=1, max_length=120)
     reason: str = Field(min_length=2, max_length=500)
+
+
+class PhaseOverride(BaseModel):
+    actor: str = Field(min_length=1, max_length=120)
+    reason: str = Field(min_length=2, max_length=500)
+    decision: Literal["pass", "fail"]
 
 
 class MaintenanceCreate(BaseModel):

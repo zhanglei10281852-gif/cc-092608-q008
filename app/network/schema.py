@@ -174,6 +174,55 @@ CREATE TABLE IF NOT EXISTS rollout_targets (
     UNIQUE(campaign_id,segment_id,cohort_key)
 );
 CREATE INDEX IF NOT EXISTS idx_rollout_targets_state ON rollout_targets(campaign_id,state,id);
+CREATE TABLE IF NOT EXISTS rollout_phases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    campaign_id INTEGER NOT NULL REFERENCES rollout_campaigns(id) ON DELETE CASCADE,
+    sequence_no INTEGER NOT NULL CHECK(sequence_no >= 1),
+    name TEXT NOT NULL,
+    min_observation_seconds INTEGER NOT NULL CHECK(min_observation_seconds > 0),
+    min_samples INTEGER NOT NULL CHECK(min_samples >= 1),
+    max_degraded_ratio REAL NOT NULL CHECK(max_degraded_ratio >= 0 AND max_degraded_ratio <= 1),
+    max_critical_incidents INTEGER NOT NULL CHECK(max_critical_incidents >= 0),
+    state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','observing','passed','failed')),
+    activated_at TEXT,
+    decided_at TEXT,
+    decision TEXT NOT NULL DEFAULT '',
+    decision_reason TEXT NOT NULL DEFAULT '',
+    decided_by TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(campaign_id, sequence_no)
+);
+CREATE INDEX IF NOT EXISTS idx_rollout_phases_campaign ON rollout_phases(campaign_id,sequence_no);
+CREATE TABLE IF NOT EXISTS rollout_phase_targets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    phase_id INTEGER NOT NULL REFERENCES rollout_phases(id) ON DELETE CASCADE,
+    segment_id INTEGER REFERENCES network_segments(id),
+    cohort_key TEXT NOT NULL DEFAULT '',
+    state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','active','paused','rolled_back','completed')),
+    activated_at TEXT,
+    completed_at TEXT,
+    rolled_back_at TEXT,
+    UNIQUE(phase_id,segment_id,cohort_key)
+);
+CREATE INDEX IF NOT EXISTS idx_rollout_phase_targets_state ON rollout_phase_targets(phase_id,state,id);
+CREATE TABLE IF NOT EXISTS rollout_phase_evaluations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    phase_id INTEGER NOT NULL REFERENCES rollout_phases(id) ON DELETE CASCADE,
+    campaign_id INTEGER NOT NULL REFERENCES rollout_campaigns(id) ON DELETE CASCADE,
+    policy_version_id INTEGER NOT NULL REFERENCES policy_versions(id),
+    window_start TEXT NOT NULL,
+    window_end TEXT NOT NULL,
+    samples INTEGER NOT NULL,
+    degraded INTEGER NOT NULL,
+    degraded_ratio REAL NOT NULL,
+    critical_incidents INTEGER NOT NULL,
+    conclusion TEXT NOT NULL CHECK(conclusion IN ('insufficient_data','passed','failed')),
+    origin TEXT NOT NULL DEFAULT 'auto' CHECK(origin IN ('auto','manual')),
+    metrics_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_rollout_phase_evaluations ON rollout_phase_evaluations(phase_id,id);
 CREATE TABLE IF NOT EXISTS maintenance_windows (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     scenario_id INTEGER NOT NULL REFERENCES network_scenarios(id),
